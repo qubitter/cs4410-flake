@@ -48,6 +48,7 @@ def get_clean_heading(h):
     else:
         return h.get_heading()[h.get_heading().find(".") + 1 :].strip()
 
+is_note = lambda h: h.get_heading().lower().strip().startswith("note:")
 
 def grade_subpart(r, path):
     pad = copy.deepcopy(path)
@@ -60,10 +61,10 @@ def grade_subpart(r, path):
     while len(graded_sections) != len(sections):
         sect = sections[current_section % len(sections)]
         options = [i for i in sect.children if get_clean_heading(i).endswith("option")]
-        print("/".join(pad) + "/" + get_clean_heading(sect))
+        if sect.children: print("/".join(pad) + "/" + get_clean_heading(sect))
         cmd = input(
-            f"{len(sect.children)} {'subsections' if len(options) == 0 else 'options'} to grade. {section_prompt}: "
-        )
+            f"{len([i for i in sect.children if not is_note(i)])} {'subsections' if len(options) == 0 else 'options'} to grade. {section_prompt}: "
+        ) if sect.children else "fallthrough"
         match cmd:
             case "h":
                 print("\n".join(section_help))
@@ -77,7 +78,7 @@ def grade_subpart(r, path):
                 current_section = current_section % len(ungraded_sections)
             case "l":
                 print("\n".join([get_clean_heading(i) for i in sect.children]))
-            case "g" | "":
+            case "g" | "" | "fallthrough":
                 if (
                     not len(
                         [
@@ -101,10 +102,10 @@ def grade_subpart(r, path):
                     choice = 0 if chosen_int == "" else int(chosen_int) - 1
                     sect = options[choice]
 
-                print(f"Now grading {sect.get_heading()}")
-                notes = [i for i in sect.children if i.get_heading().lower().strip().startswith("note:")]
+                if cmd != "fallthrough": print(f"Now grading {sect.get_heading()}")
+                notes = [i for i in sect.children if is_note(i)]
                 if notes: print("\n".join([get_clean_heading(i) for i in notes]))
-                for subsec in [i for i in sect.children if i not in notes]:
+                for subsec in ([i for i in sect.children if i not in notes] if sect.children else [sect]):
                     bonus = True in [i in subsec.get_heading().lower() for i in ["i]", "??", "bonus point"]]
                     inp = input(f"{subsec.get_heading()}: {"y/N" if bonus else "Y/n"} ").lower().strip()
                     if inp == "n" and not bonus:
