@@ -1,81 +1,129 @@
 import orgparse
-from functools import reduce
 from argparse import ArgumentParser
+import copy
 
 parser = ArgumentParser()
 parser.add_argument("file")
 args = parser.parse_args()
 
-# grade | skip | quit | jump | help
-section_opts = ["g", "s", "j", "q", "h"]
+# grade | list | skip | jump | quit | help
+section_opts = ["g", "l", "s", "j", "q", "h"]
 section_prompt = "/".join(section_opts)
 section_help = [
-        "[g]rade this section",
-        "[s]kip this section and go to the next ungraded section",
-        "[j]ump to a specific section",
-        "[q]uit grading for now (save progress)",
-        "[h]elp"
-    ]
+    "[g]rade this section",
+    "[l]ist subsections of this section",
+    "[s]kip this section and go to the next ungraded section",
+    "[j]ump to a specific section",
+    "[q]uit grading for now (save progress)",
+    "[h]elp",
+]
 
 print(f"""
-* * * * * * * * * * * * * {"* "*(2 + len(args.file)//2)}
+* * * * * * * * * * * * * {"* " * (2 + len(args.file) // 2)}
 * Grading based on rubric {args.file}{" " if len(args.file) % 2 == 0 else ""} *
-* * * * * * * * * * * * * {"* "*(2 + len(args.file)//2)}
+* * * * * * * * * * * * * {"* " * (2 + len(args.file) // 2)}
 """)
 
 root = orgparse.load(args.file)
-submission_points = 0
+deductions = []
+bonuses = []
+
+grad = input("Grade this submission as graduate? ").lower().strip() == "y"
 
 
-def sum_im(x,y):
-    def ct_im(z):
-        return 1 if z == "i" else int(z[:-1])
-    return ct_im(x)+ct_im(y)
+def print_output():
+    print(f"Calculated deductions:\n{'\n'.join(deductions)}")
+    print(f"Calculated bonuses:\n{'\n'.join(bonuses)}")
 
 
-def split_im(z):
-    return (z.split("+")[0], z.split("+")[1])
+def get_points(p):
+    p[p.rfind("[") + 1 : -1]
 
-(max_re, max_im) = reduce(
-        (lambda x,y: (x[0]+y[0],sum_im(x[1],y[1]))), 
-        map(lambda x: split_im(x[(str(x).rfind("[")+1):-1]), root.children),
-        (0,0))
 
-def grade_subpart(r):
+def get_clean_heading(h):
+    if "[" in h.get_heading():
+        return h.get_heading()[
+            h.get_heading().find(".") + 1 : h.get_heading().rfind("[")
+        ].strip()
+    else:
+        return h.get_heading()[h.get_heading().find(".") + 1 :].strip()
+
+
+def grade_subpart(r, path):
+    pad = copy.deepcopy(path)
+    pad.append(get_clean_heading(r) if not r.is_root() else "")
     sections = r.children
-    at_bottom = len(
-            list(
-                filter(
-                    (lambda x: hasattr(x.children, "children")),
-                    sections))) == 0
-    ungraded_sections = []
+    ungraded_sections = sections
     graded_sections = []
     current_section = 0
 
-    while (len(graded_sections) != len(sections)):
-        print(ungraded_sections[current_section])
+    while len(graded_sections) != len(sections):
+        sect = sections[current_section % len(sections)]
+        options = [i for i in sect.children if get_clean_heading(i).endswith("option")]
+        print("/".join(pad) + "/" + get_clean_heading(sect))
         cmd = input(
-            f"{len(ungraded_sections)} sections to grade. {section_prompt}:\n")
+            f"{len(sect.children)} {'subsections' if len(options) == 0 else 'options'} to grade. {section_prompt}: "
+        )
         match cmd:
             case "h":
                 print("\n".join(section_help))
             case "q":
+                print_output()
                 quit()
             case "j":
-                print("\n".join(ungraded_sections))
+                print("\n".join(map((lambda x: x.get_heading()), ungraded_sections)))
             case "s":
                 current_section += 1
                 current_section = current_section % len(ungraded_sections)
-            case "g":
-                if not at_bottom:
-                    grade_subpart(ungraded_sections[current_section].children)
-                else:
-                    print(f"Now grading {sections[current_section]}")
-                    for subsec in sections[current_section].children:
-                        points = subsec[str(subsec).rfind("[")+1:-1]
-                        if "," in points:
-                            (grad_re, grad_im) = split_im(points.split(",")[1])
-                        (ug_re, ug_im) = split_im(points.split(",")[0])
-                        if input(f"{subsec}: Y/n: ").lower() == "y":
-                            points += ug_re
+            case "l":
+                print("\n".join([get_clean_heading(i) for i in sect.children]))
+            case "g" | "":
+                if (
+                    not len(
+                        [
+                            x.children
+                            for x in sect.children
+                            if x.children
+                        ]
+                    )
+                    == 0
+                ) and len(options) == 0:
+                    grade_subpart(sect, pad)
+                    graded_sections.append(sect)
+                    current_section += 1
+                    continue
+                elif len(options) != 0:
+                    print(
+                        f"There are {len(options)} options:\n"
+                        + "\n".join([x.get_heading() for x in options])
+                    )
+                    chosen_int = input(f"choose 1-{len(options)}: ")
+                    choice = 0 if chosen_int == "" else int(chosen_int) - 1
+                    sect = options[choice]
 
+                print(f"Now grading {sect.get_heading()}")
+                notes = [i for i in sect.children if i.get_heading().lower().strip().startswith("note:")]
+                if notes: print("\n".join([get_clean_heading(i) for i in notes]))
+                for subsec in [i for i in sect.children if i not in notes]:
+                    bonus = True in [i in subsec.get_heading().lower() for i in ["i]", "??", "bonus point"]]
+                    inp = input(f"{subsec.get_heading()}: {"y/N" if bonus else "Y/n"} ").lower().strip()
+                    if inp == "n" and not bonus:
+                        deductions.append(
+                            "/".join(pad + [get_clean_heading(sect)])
+                            + ": "
+                            + subsec.get_heading()
+                        )
+                    elif inp == "y" and bonus:
+                        bonuses.append(
+                            "/".join(pad + [get_clean_heading(sect)])
+                            + ": "
+                            + subsec.get_heading()
+                        )
+                graded_sections.append(sect)
+                current_section += 1
+    if path == []:
+        print("* " * 32)
+        print("Grading complete!")
+        print_output()
+
+grade_subpart(root, [])
