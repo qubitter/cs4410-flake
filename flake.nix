@@ -30,6 +30,7 @@
         nasm
         clang
         valgrind
+        gdb
       ];
       grading-pkgs = with pkgs; [
         unzip # to unzip student submissions :p
@@ -42,6 +43,9 @@
       };
       devShells.grading = pkgs.mkShell {
         buildInputs = build-pkgs ++ ocaml-pkgs ++ grading-pkgs;
+        shellHook = ''
+          export "LDFLAGS=-z noexecstack"
+        '';
       };
       packages = {
         default =
